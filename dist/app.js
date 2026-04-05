@@ -1,8 +1,32 @@
 // MD Viewer — frontend (Tauri v2)
-const { invoke } = window.__TAURI__.core;
-const { open } = window.__TAURI__.dialog;
-const { listen } = window.__TAURI__.event;
-const { convertFileSrc } = window.__TAURI__.core;
+// Les bindings Tauri sont exposés via withGlobalTauri:true.
+// Les plugins (dialog, fs) ne sont PAS auto-attachés à window.__TAURI__ ;
+// on les appelle via invoke('plugin:NAME|COMMAND', args).
+
+// Affiche toute erreur directement dans la page (debug)
+window.addEventListener('error', (e) => {
+  const el = document.getElementById('content') || document.body;
+  if (el) {
+    const pre = document.createElement('pre');
+    pre.style.cssText = 'color:#ff6b6b;padding:20px;white-space:pre-wrap;font-size:13px;background:#1a0000;border:1px solid #ff6b6b;margin:20px;';
+    pre.textContent = `JS Error: ${e.message}\nat ${e.filename}:${e.lineno}:${e.colno}`;
+    el.prepend(pre);
+  }
+});
+
+if (!window.__TAURI__) {
+  document.body.innerHTML = '<pre style="color:red;padding:40px">window.__TAURI__ non disponible. Vérifier withGlobalTauri:true dans tauri.conf.json.</pre>';
+  throw new Error('Tauri API unavailable');
+}
+
+const invoke = window.__TAURI__.core.invoke;
+const convertFileSrc = window.__TAURI__.core.convertFileSrc;
+const listen = window.__TAURI__.event.listen;
+
+// Wrapper dialog.open via invoke direct sur le plugin
+async function openDialog(options) {
+  return await invoke('plugin:dialog|open', { options });
+}
 
 // ===== État =====
 let currentFilePath = null;
@@ -195,15 +219,22 @@ async function loadAndRender(filePath) {
 
 // ===== UI handlers =====
 document.getElementById('open-btn').addEventListener('click', async () => {
-  const selected = await open({
-    multiple: false,
-    filters: [
-      { name: 'Markdown', extensions: ['md', 'markdown', 'mdown', 'mkd', 'mkdn', 'txt'] },
-      { name: 'Tous les fichiers', extensions: ['*'] }
-    ]
-  });
-  if (typeof selected === 'string') {
-    loadAndRender(selected);
+  try {
+    const selected = await openDialog({
+      multiple: false,
+      filters: [
+        { name: 'Markdown', extensions: ['md', 'markdown', 'mdown', 'mkd', 'mkdn', 'txt'] },
+        { name: 'Tous les fichiers', extensions: ['*'] }
+      ]
+    });
+    // Tauri dialog plugin retourne une string (ou null/undefined si annulé)
+    if (selected && typeof selected === 'string') {
+      loadAndRender(selected);
+    } else if (selected && typeof selected === 'object' && selected.path) {
+      loadAndRender(selected.path);
+    }
+  } catch (err) {
+    alert('Erreur dialog : ' + err);
   }
 });
 

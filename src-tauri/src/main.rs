@@ -40,6 +40,20 @@ fn load_file(path: String) -> Result<LoadedFile, String> {
 }
 
 fn main() {
+    // Workarounds pour webkit2gtk ≥ 2.44 sur Linux (Wayland/XWayland)
+    // - DMA-BUF renderer alloue des buffers GBM invalides → page blanche
+    // - Compositing mode parfois buggé sur Wayland
+    // Ces variables doivent être positionnées AVANT l'init du webview.
+    #[cfg(target_os = "linux")]
+    {
+        if std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none() {
+            std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+        }
+        if std::env::var_os("WEBKIT_DISABLE_COMPOSITING_MODE").is_none() {
+            std::env::set_var("WEBKIT_DISABLE_COMPOSITING_MODE", "1");
+        }
+    }
+
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
