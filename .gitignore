@@ -1,0 +1,20 @@
+# Rust / Cargo
+src-tauri/target/
+src-tauri/gen/schemas/
+**/*.rs.bk
+
+# Node (si un jour on ajoute un bundler)
+node_modules/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Éditeurs
+.vscode/
+.idea/
+*.swp
+*~
+
+# Logs
+*.log
