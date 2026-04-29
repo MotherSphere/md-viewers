@@ -29,7 +29,7 @@ jobs:
             artifact_name: md-viewer-windows-x64.exe
             binary_src: src-tauri/target/release/md-viewer.exe
           - name: macOS Intel
-            os: macos-13
+            os: macos-latest
             target: x86_64-apple-darwin
             args: '--target x86_64-apple-darwin'
             artifact_name: md-viewer-macos-x64
