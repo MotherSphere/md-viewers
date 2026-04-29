@@ -20,18 +20,26 @@ jobs:
             os: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
             args: ''
+            artifact_name: md-viewer-linux-x64
+            binary_src: src-tauri/target/release/md-viewer
           - name: Windows x64
             os: windows-latest
             target: x86_64-pc-windows-msvc
             args: ''
+            artifact_name: md-viewer-windows-x64.exe
+            binary_src: src-tauri/target/release/md-viewer.exe
           - name: macOS Intel
             os: macos-13
             target: x86_64-apple-darwin
             args: '--target x86_64-apple-darwin'
+            artifact_name: md-viewer-macos-x64
+            binary_src: src-tauri/target/x86_64-apple-darwin/release/md-viewer
           - name: macOS Apple Silicon
             os: macos-latest
             target: aarch64-apple-darwin
             args: '--target aarch64-apple-darwin'
+            artifact_name: md-viewer-macos-arm64
+            binary_src: src-tauri/target/aarch64-apple-darwin/release/md-viewer
 
     steps:
       - name: Checkout
@@ -64,61 +72,38 @@ jobs:
       - name: Install Tauri CLI
         run: cargo install tauri-cli --version "^2.0" --locked
 
-      - name: Build Tauri app (Windows — no installer, raw .exe only)
-        if: runner.os == 'Windows'
+      - name: Build Tauri app (raw binary, no bundle)
         run: cargo tauri build --no-bundle ${{ matrix.platform.args }}
 
-      - name: Build Tauri app (Linux + macOS — with bundling)
-        if: runner.os != 'Windows'
-        run: cargo tauri build ${{ matrix.platform.args }}
-
-      - name: Rename Windows portable exe
-        if: runner.os == 'Windows'
+      - name: Stage raw binary
         shell: bash
         run: |
           mkdir -p release-out
-          cp "src-tauri/target/release/md-viewer.exe" "release-out/MD-Viewer-portable.exe"
+          cp "${{ matrix.platform.binary_src }}" "release-out/${{ matrix.platform.artifact_name }}"
+          if [ "${{ runner.os }}" != "Windows" ]; then
+            chmod +x "release-out/${{ matrix.platform.artifact_name }}"
+          fi
           ls -lh release-out/
 
-      - name: Upload artifacts (Linux)
-        if: runner.os == 'Linux'
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: md-viewer-linux-x64
-          path: |
-            src-tauri/target/release/bundle/appimage/*.AppImage
-            src-tauri/target/release/bundle/deb/*.deb
-          if-no-files-found: warn
-          retention-days: 30
-
-      - name: Upload artifacts (Windows — portable)
-        if: runner.os == 'Windows'
-        uses: actions/upload-artifact@v4
-        with:
-          name: md-viewer-windows-portable
-          path: release-out/MD-Viewer-portable.exe
+          name: ${{ matrix.platform.artifact_name }}
+          path: release-out/${{ matrix.platform.artifact_name }}
           if-no-files-found: error
-          retention-days: 30
-
-      - name: Upload artifacts (macOS)
-        if: runner.os == 'macOS'
-        uses: actions/upload-artifact@v4
-        with:
-          name: md-viewer-macos-${{ matrix.platform.target }}
-          path: |
-            src-tauri/target/${{ matrix.platform.target }}/release/bundle/dmg/*.dmg
-            src-tauri/target/${{ matrix.platform.target }}/release/bundle/macos/*.app.tar.gz
-          if-no-files-found: warn
           retention-days: 30
 
   release:
     name: Publish release
     needs: build
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
@@ -127,14 +112,31 @@ jobs:
       - name: Flatten artifact tree
         run: |
           mkdir -p release
-          find artifacts -type f \( -name "*.AppImage" -o -name "*.deb" -o -name "*.exe" -o -name "*.dmg" \) -exec cp {} release/ \;
+          find artifacts -type f -exec cp {} release/ \;
           ls -lh release/
+
+      - name: Compute release metadata
+        id: meta
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+            echo "name=MD Viewer ${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          else
+            short_sha="${GITHUB_SHA::7}"
+            echo "tag=build-${short_sha}" >> "$GITHUB_OUTPUT"
+            echo "name=MD Viewer build ${short_sha}" >> "$GITHUB_OUTPUT"
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: release/*
+          tag_name: ${{ steps.meta.outputs.tag }}
+          name: ${{ steps.meta.outputs.name }}
+          target_commitish: ${{ github.sha }}
           draft: false
-          prerelease: false
+          prerelease: ${{ steps.meta.outputs.prerelease }}
           generate_release_notes: true
-          name: MD Viewer ${{ github.ref_name }}
+          fail_on_unmatched_files: true
